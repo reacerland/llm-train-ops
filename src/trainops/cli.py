@@ -6,6 +6,12 @@ from pathlib import Path
 
 import typer
 
+from trainops.convert.command import (
+    CacheNotFoundError,
+    OutputExistsError,
+    run_convert,
+)
+from trainops.convert.transform import MissingFieldError, parse_fields
 from trainops.fetch.cache import CacheCorruptedError
 from trainops.fetch.command import run_fetch
 from trainops.fetch.sizeparse import parse_size
@@ -55,6 +61,52 @@ def fetch(
         if result.dataset_exhausted:
             typer.secho("warning: dataset exhausted before reaching target size",
                         fg=typer.colors.YELLOW)
+
+
+@app.command()
+def convert(
+    dataset: str = typer.Option(..., help="ModelScope dataset id (must already be cached by fetch)"),
+    name: str | None = typer.Option(None, help="Cache alias used at fetch time"),
+    subset: str | None = typer.Option(None, help="Dataset subset name"),
+    split: str = typer.Option("train", help="Dataset split"),
+    fields: str = typer.Option(..., help="Comma-separated field whitelist, e.g. 'text' or 'text,title'"),
+    skip_bad: bool = typer.Option(False, "--skip-bad",
+                                  help="Skip records missing fields or with invalid JSON lines"),
+    output: Path | None = typer.Option(None, help="Output directory (default: <cache>/.../data.arrow)"),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Replace an existing output directory"),
+    cache_dir: Path = typer.Option(Path.home() / ".cache" / "trainops", help="Cache root directory"),
+) -> None:
+    """Convert a cached ModelScope dataset into an HF arrow dataset directory."""
+    try:
+        field_list = parse_fields(fields)
+    except ValueError as exc:
+        typer.secho(f"error: {exc}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=2) from exc
+
+    try:
+        result = run_convert(dataset, subset, split, field_list, cache_dir,
+                             output=output, skip_bad=skip_bad, overwrite=overwrite,
+                             name=name)
+    except CacheNotFoundError as exc:
+        typer.secho(f"error: {exc}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    except OutputExistsError as exc:
+        typer.secho(f"error: {exc} (use --overwrite to replace it)",
+                    err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    except (MissingFieldError, ValueError) as exc:
+        typer.secho(f"error: {exc}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:
+        typer.secho(f"error: failed to convert dataset '{dataset}': {exc}",
+                    err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"done: {result.records} records -> {result.output_dir} "
+               f"({result.bytes} bytes)")
+    if result.skipped:
+        typer.secho(f"warning: skipped {result.skipped} bad records",
+                    fg=typer.colors.YELLOW)
 
 
 def main() -> None:
