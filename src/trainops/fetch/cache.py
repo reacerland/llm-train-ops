@@ -3,9 +3,11 @@
 import json
 import os
 import tempfile
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 
 class CacheCorruptedError(Exception):
@@ -92,3 +94,26 @@ class DatasetCache:
                 f"{self.data_path} has {actual} bytes but meta says {meta.bytes}; "
                 f"remove {self.dir} and retry"
             )
+
+    def iter_records(self) -> Iterator[tuple[int, dict[str, Any]]]:
+        """Yield (utf-8 byte length of the JSONL line, parsed record) one at a time.
+
+        Raises FileNotFoundError when data.jsonl does not exist, and ValueError
+        (with file:line context) when a line is not valid JSON.
+        """
+        if not self.data_path.exists():
+            raise FileNotFoundError(
+                f"cache data file not found: {self.data_path} (run fetch first)"
+            )
+        with open(self.data_path, "r", encoding="utf-8") as f:
+            for line_number, raw in enumerate(f, start=1):
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        f"{self.data_path}:{line_number}: invalid JSON line: {exc}"
+                    ) from exc
+                yield len(raw.encode("utf-8")), record

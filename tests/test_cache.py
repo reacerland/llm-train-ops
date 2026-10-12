@@ -1,3 +1,5 @@
+import pytest
+
 from trainops.fetch.cache import CacheMeta, DatasetCache, dataset_slug
 
 
@@ -52,3 +54,35 @@ def test_load_meta_without_name_field_is_compatible(tmp_path):
     loaded = cache.load_meta()
     assert loaded.name is None
     assert loaded.records == 3
+
+
+def test_iter_records_yields_line_bytes_and_records(tmp_path):
+    cache = DatasetCache(tmp_path, "org/ds", "default", "train")
+    cache.dir.mkdir(parents=True)
+    line1 = '{"text": "hi"}\n'
+    cache.data_path.write_text(line1 + '{"text": "中文"}\n', encoding="utf-8")
+    items = list(cache.iter_records())
+    assert items[0] == (len(line1.encode("utf-8")), {"text": "hi"})
+    assert items[1] == (len('{"text": "中文"}\n'.encode("utf-8")), {"text": "中文"})
+
+
+def test_iter_records_missing_file_raises(tmp_path):
+    cache = DatasetCache(tmp_path, "org/ds", "default", "train")
+    with pytest.raises(FileNotFoundError):
+        list(cache.iter_records())
+
+
+def test_iter_records_invalid_json_raises_with_line_number(tmp_path):
+    cache = DatasetCache(tmp_path, "org/ds", "default", "train")
+    cache.dir.mkdir(parents=True)
+    cache.data_path.write_text('{"a": 1}\nnot-json\n', encoding="utf-8")
+    with pytest.raises(ValueError, match=":2:"):
+        list(cache.iter_records())
+
+
+def test_iter_records_skips_blank_lines(tmp_path):
+    cache = DatasetCache(tmp_path, "org/ds", "default", "train")
+    cache.dir.mkdir(parents=True)
+    cache.data_path.write_text('{"a": 1}\n\n{"a": 2}\n', encoding="utf-8")
+    items = list(cache.iter_records())
+    assert [record for _, record in items] == [{"a": 1}, {"a": 2}]
