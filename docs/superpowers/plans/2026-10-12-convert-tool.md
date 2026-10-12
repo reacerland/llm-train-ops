@@ -1,6 +1,6 @@
 # convert 工具（缓存 → HF Arrow）实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 新增 `trainops convert` 命令，把 fetch 缓存的 JSONL 数据集按字段白名单转换为 HF Arrow 目录（`save_to_disk` 格式），供训练时 `load_from_disk` 直接加载。
 
@@ -23,13 +23,13 @@
 - Create: `src/trainops/convert/transform.py`
 - Test: `tests/test_convert_transform.py`
 
-- [ ] **Step 1: 创建包目录与空 `__init__.py`**
+- [x] **Step 1: 创建包目录与空 `__init__.py`**
 
 ```bash
 mkdir -p src/trainops/convert && touch src/trainops/convert/__init__.py
 ```
 
-- [ ] **Step 2: 写失败的测试**
+- [x] **Step 2: 写失败的测试**
 
 创建 `tests/test_convert_transform.py`：
 
@@ -94,12 +94,12 @@ def test_extract_fields_missing_raises_with_index_and_field():
     assert "'b'" in str(exc_info.value)
 ```
 
-- [ ] **Step 3: 运行测试确认失败**
+- [x] **Step 3: 运行测试确认失败**
 
 Run: `.venv/bin/pytest tests/test_convert_transform.py -v`
 Expected: FAIL（`ModuleNotFoundError: No module named 'trainops.convert'`）
 
-- [ ] **Step 4: 实现 transform.py**
+- [x] **Step 4: 实现 transform.py**
 
 创建 `src/trainops/convert/transform.py`：
 
@@ -144,12 +144,12 @@ def _require(record: dict, field: str, record_index: int):
     return record[field]
 ```
 
-- [ ] **Step 5: 运行测试确认通过**
+- [x] **Step 5: 运行测试确认通过**
 
 Run: `.venv/bin/pytest tests/test_convert_transform.py -v`
 Expected: 10 passed
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/trainops/convert/ tests/test_convert_transform.py
@@ -164,7 +164,7 @@ git commit -m "feat: add convert transform (field extraction + value normalizati
 - Modify: `src/trainops/fetch/cache.py`（新增方法；顶部 import 增加 `Iterator`、`Any`）
 - Test: `tests/test_cache.py`（追加）
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 追加到 `tests/test_cache.py` 末尾：
 
@@ -207,12 +207,12 @@ def test_iter_records_skips_blank_lines(tmp_path):
 import pytest
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `.venv/bin/pytest tests/test_cache.py -k iter_records -v`
 Expected: FAIL（`AttributeError: 'DatasetCache' object has no attribute 'iter_records'`）
 
-- [ ] **Step 3: 实现 iter_records()**
+- [x] **Step 3: 实现 iter_records()**
 
 修改 `src/trainops/fetch/cache.py`。
 
@@ -256,12 +256,12 @@ from typing import Any
                 yield len(line.encode("utf-8")), record
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `.venv/bin/pytest tests/test_cache.py -v`
 Expected: 全部 passed（原 7 个 + 新 4 个）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/trainops/fetch/cache.py tests/test_cache.py
@@ -276,7 +276,7 @@ git commit -m "feat: add DatasetCache.iter_records for streaming jsonl reads"
 - Create: `src/trainops/convert/command.py`
 - Test: `tests/test_convert_command.py`
 
-- [ ] **Step 1: 写失败的测试（happy path + 类型规则）**
+- [x] **Step 1: 写失败的测试（happy path + 类型规则）**
 
 创建 `tests/test_convert_command.py`：
 
@@ -345,12 +345,12 @@ def test_convert_name_alias_locates_cache(tmp_path):
     assert load_from_disk(str(result.output_dir)).num_rows == 5
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `.venv/bin/pytest tests/test_convert_command.py -v`
 Expected: FAIL（`ModuleNotFoundError: No module named 'trainops.convert.command'`）
 
-- [ ] **Step 3: 实现 command.py**
+- [x] **Step 3: 实现 command.py**
 
 创建 `src/trainops/convert/command.py`：
 
@@ -492,12 +492,12 @@ def _dir_size(path: Path) -> int:
     return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `.venv/bin/pytest tests/test_convert_command.py -v`
 Expected: 3 passed
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/trainops/convert/command.py tests/test_convert_command.py
@@ -512,7 +512,7 @@ git commit -m "feat: add run_convert (stream cache jsonl to HF arrow directory)"
 - Modify: `src/trainops/convert/command.py`（Task 3 已创建，本任务不改实现，只补测试验证既有行为）
 - Test: `tests/test_convert_command.py`（追加）
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 追加到 `tests/test_convert_command.py`：
 
@@ -603,12 +603,12 @@ def test_convert_empty_cache_produces_empty_dataset(tmp_path):
     assert ds.column_names == ["text"]
 ```
 
-- [ ] **Step 2: 运行测试**
+- [x] **Step 2: 运行测试**
 
 Run: `.venv/bin/pytest tests/test_convert_command.py -v`
 Expected: 全部 passed（这些路径在 Task 3 的实现中已覆盖；若有失败，根据报错信息修正 `command.py` 后重跑，直至通过）
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add tests/test_convert_command.py
@@ -623,7 +623,7 @@ git commit -m "test: cover convert error paths, skip-bad, overwrite, empty cache
 - Modify: `src/trainops/cli.py`（import 区 + 新 `@app.command()`）
 - Test: `tests/test_cli.py`（追加）
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `tests/test_cli.py` 顶部 import 区追加：
 
@@ -746,12 +746,12 @@ def test_convert_command_missing_field_exit_1(tmp_path, monkeypatch):
 from trainops.convert.transform import MissingFieldError
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `.venv/bin/pytest tests/test_cli.py -k convert -v`
 Expected: FAIL（`SystemExit: No such command 'convert'` 或 import 错误）
 
-- [ ] **Step 3: 实现 CLI**
+- [x] **Step 3: 实现 CLI**
 
 修改 `src/trainops/cli.py`。
 
@@ -815,12 +815,12 @@ def convert(
                     fg=typer.colors.YELLOW)
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `.venv/bin/pytest tests/test_cli.py -v`
 Expected: 全部 passed（原 7 个 fetch 测试 + 新 7 个 convert 测试）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/trainops/cli.py tests/test_cli.py
@@ -834,7 +834,7 @@ git commit -m "feat: register convert subcommand in CLI"
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1: 更新 README**
+- [x] **Step 1: 更新 README**
 
 把 README 首行“当前包含 `fetch` 数据获取工具。”改为：
 
@@ -863,12 +863,12 @@ trainops convert --dataset AI-ModelScope/xxx \
 - 训练侧用法：`datasets.load_from_disk("<...>/data.arrow")` 后直接 `.map()` tokenize
 ```
 
-- [ ] **Step 2: 全量测试**
+- [x] **Step 2: 全量测试**
 
 Run: `.venv/bin/pytest -q`
 Expected: 全部 passed，无 slow 测试运行
 
-- [ ] **Step 3: 冒烟验证（真实 CLI，可选但推荐）**
+- [x] **Step 3: 冒烟验证（真实 CLI，可选但推荐）**
 
 ```bash
 .venv/bin/python -m trainops.cli fetch --dataset AI-ModelScope/xxx --max-size 1MB --cache-dir /tmp/trainops-smoke 2>&1 | tail -2
@@ -878,7 +878,7 @@ Expected: 全部 passed，无 slow 测试运行
 
 注：第一条需要网络与真实数据集；无网络环境可跳过，单测已覆盖转换逻辑。若数据集实际字段名不是 `text`，用 `--fields` 指定真实存在的字段。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add README.md
