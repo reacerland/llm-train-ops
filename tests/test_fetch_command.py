@@ -97,3 +97,12 @@ def test_subset_none_uses_default_cache_dir(tmp_path):
                        stream_fn=fake_stream_factory(ROWS))
     assert result.cache_dir == tmp_path / "datasets" / "org__ds" / "default" / "train"
     assert result.records == 1
+
+
+def test_name_overrides_cache_key(tmp_path):
+    result = run_fetch("org/ds", None, "train", ROW_BYTES * 2, tmp_path,
+                       name="my-ds", stream_fn=fake_stream_factory(ROWS))
+    assert result.cache_dir == tmp_path / "datasets" / "my-ds" / "default" / "train"
+    meta = json.loads((result.cache_dir / "meta.json").read_text())
+    assert meta["name"] == "my-ds"
+    assert meta["dataset"] == "org/ds"

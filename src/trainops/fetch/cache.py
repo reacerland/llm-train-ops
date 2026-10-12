@@ -20,6 +20,7 @@ class CacheMeta:
     records: int = 0
     bytes: int = 0
     updated_at: str = ""
+    name: str | None = None
 
 
 def dataset_slug(dataset: str) -> str:
@@ -30,18 +31,21 @@ def dataset_slug(dataset: str) -> str:
 class DatasetCache:
     """One cache entry keyed by (dataset, subset, split)."""
 
-    def __init__(self, cache_dir: Path, dataset: str, subset: str, split: str):
-        self.dir = Path(cache_dir) / "datasets" / dataset_slug(dataset) / subset / split
+    def __init__(self, cache_dir: Path, dataset: str, subset: str, split: str,
+                 name: str | None = None):
+        key = name or dataset_slug(dataset)
+        self.dir = Path(cache_dir) / "datasets" / key / subset / split
         self.data_path = self.dir / "data.jsonl"
         self.meta_path = self.dir / "meta.json"
         self.dataset = dataset
         self.subset = subset
         self.split = split
+        self.name = name
 
     def load_meta(self) -> CacheMeta:
         """Load checkpoint metadata; returns an empty meta when none exists."""
         if not self.meta_path.exists():
-            return CacheMeta(self.dataset, self.subset, self.split)
+            return CacheMeta(self.dataset, self.subset, self.split, name=self.name)
         data = json.loads(self.meta_path.read_text(encoding="utf-8"))
         return CacheMeta(**data)
 

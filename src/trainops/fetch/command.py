@@ -31,6 +31,7 @@ def run_fetch(
     max_size: int,
     cache_dir: Path,
     stream_fn: StreamFn = stream_dataset,
+    name: str | None = None,
 ) -> FetchResult:
     """Fetch up to max_size bytes of raw records into the local cache.
 
@@ -41,7 +42,7 @@ def run_fetch(
       or the dataset is exhausted. Metadata is checkpointed every
       CHECKPOINT_INTERVAL records and always on exit (including exceptions).
     """
-    cache = DatasetCache(cache_dir, dataset, subset or DEFAULT_SUBSET, split)
+    cache = DatasetCache(cache_dir, dataset, subset or DEFAULT_SUBSET, split, name=name)
     meta = cache.load_meta()
     cache.ensure_consistent(meta)
 

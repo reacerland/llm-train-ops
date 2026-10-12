@@ -17,6 +17,7 @@ def main() -> None:
 @app.command()
 def fetch(
     dataset: str = typer.Option(..., help="ModelScope dataset id, e.g. 'AI-ModelScope/xxx'"),
+    name: str | None = typer.Option(None, help="Cache alias for this dataset (used as the cache key)"),
     subset: str | None = typer.Option(None, help="Dataset subset name (omit for datasets without configs)"),
     split: str = typer.Option("train", help="Dataset split"),
     max_size: str = typer.Option(..., "--max-size", help="Target cache size, e.g. '500MB', '2GB'"),
@@ -30,7 +31,7 @@ def fetch(
         raise typer.Exit(code=2) from exc
 
     try:
-        result = run_fetch(dataset, subset, split, size, cache_dir)
+        result = run_fetch(dataset, subset, split, size, cache_dir, name=name)
     except CacheCorruptedError as exc:
         typer.secho(f"error: {exc}", err=True, fg=typer.colors.RED)
         raise typer.Exit(code=1) from exc

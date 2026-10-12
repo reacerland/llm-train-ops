@@ -27,3 +27,28 @@ def test_save_and_load_meta_roundtrip(tmp_path):
     assert loaded.records == 10
     assert loaded.bytes == 2048
     assert loaded.updated_at != ""
+
+
+def test_name_overrides_cache_dir(tmp_path):
+    cache = DatasetCache(tmp_path, "org/ds", "default", "train", name="my-ds")
+    assert cache.dir == tmp_path / "datasets" / "my-ds" / "default" / "train"
+
+
+def test_meta_roundtrip_with_name(tmp_path):
+    cache = DatasetCache(tmp_path, "org/ds", "default", "train", name="my-ds")
+    cache.save_meta(CacheMeta(dataset="org/ds", subset="default", split="train", name="my-ds"))
+    loaded = cache.load_meta()
+    assert loaded.name == "my-ds"
+    assert loaded.dataset == "org/ds"
+
+
+def test_load_meta_without_name_field_is_compatible(tmp_path):
+    """meta.json written by older versions (no 'name' field) still loads."""
+    cache = DatasetCache(tmp_path, "org/ds", "default", "train")
+    cache.dir.mkdir(parents=True)
+    cache.meta_path.write_text(
+        '{"dataset": "org/ds", "subset": "default", "split": "train", '
+        '"records": 3, "bytes": 30, "updated_at": "x"}')
+    loaded = cache.load_meta()
+    assert loaded.name is None
+    assert loaded.records == 3
