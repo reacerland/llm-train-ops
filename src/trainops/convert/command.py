@@ -93,15 +93,25 @@ def run_convert(
                     writer.write_table(pa.Table.from_pylist(batch_rows, schema=schema))
                     batch_rows.clear()
 
-            for idx, (line_bytes, record) in enumerate(cache.iter_records(), start=1):
+            stream = enumerate(cache.iter_records(), start=1)
+            while True:
+                try:
+                    idx, (line_bytes, record, error) = next(stream)
+                except StopIteration:
+                    break
                 read_bytes += line_bytes
                 pbar.update(line_bytes)
+                if error is not None:
+                    if not skip_bad:
+                        raise ValueError(error)
+                    skipped += 1
+                    continue
                 try:
                     if not isinstance(record, dict):
                         raise ValueError(f"record {idx} is not a JSON object")
                     batch_rows.append(extract_fields(record, fields, record_index=idx))
                     records += 1
-                except (MissingFieldError, ValueError) as exc:
+                except (MissingFieldError, ValueError):
                     if not skip_bad:
                         raise
                     skipped += 1
@@ -123,7 +133,9 @@ def run_convert(
         shutil.rmtree(output_dir)
     try:
         ds = Dataset.from_file(str(tmp_path))
-        ds.save_to_disk(str(output_dir))
+        # num_shards=1: datasets 4.x writes zero shards for an empty dataset
+        # otherwise, producing a directory load_from_disk cannot read back
+        ds.save_to_disk(str(output_dir), num_shards=1)
     finally:
         tmp_path.unlink(missing_ok=True)
 

@@ -56,14 +56,14 @@ def test_load_meta_without_name_field_is_compatible(tmp_path):
     assert loaded.records == 3
 
 
-def test_iter_records_yields_line_bytes_and_records(tmp_path):
+def test_iter_records_yields_line_bytes_records_and_errors(tmp_path):
     cache = DatasetCache(tmp_path, "org/ds", "default", "train")
     cache.dir.mkdir(parents=True)
     line1 = '{"text": "hi"}\n'
     cache.data_path.write_text(line1 + '{"text": "中文"}\n', encoding="utf-8")
     items = list(cache.iter_records())
-    assert items[0] == (len(line1.encode("utf-8")), {"text": "hi"})
-    assert items[1] == (len('{"text": "中文"}\n'.encode("utf-8")), {"text": "中文"})
+    assert items[0] == (len(line1.encode("utf-8")), {"text": "hi"}, None)
+    assert items[1] == (len('{"text": "中文"}\n'.encode("utf-8")), {"text": "中文"}, None)
 
 
 def test_iter_records_missing_file_raises(tmp_path):
@@ -72,12 +72,15 @@ def test_iter_records_missing_file_raises(tmp_path):
         list(cache.iter_records())
 
 
-def test_iter_records_invalid_json_raises_with_line_number(tmp_path):
+def test_iter_records_invalid_json_yields_error_and_continues(tmp_path):
     cache = DatasetCache(tmp_path, "org/ds", "default", "train")
     cache.dir.mkdir(parents=True)
-    cache.data_path.write_text('{"a": 1}\nnot-json\n', encoding="utf-8")
-    with pytest.raises(ValueError, match=":2:"):
-        list(cache.iter_records())
+    cache.data_path.write_text('{"a": 1}\nnot-json\n{"a": 2}\n', encoding="utf-8")
+    items = list(cache.iter_records())
+    assert len(items) == 3
+    assert items[1][1] is None
+    assert ":2:" in items[1][2]
+    assert items[2][1] == {"a": 2}
 
 
 def test_iter_records_skips_blank_lines(tmp_path):
@@ -85,4 +88,4 @@ def test_iter_records_skips_blank_lines(tmp_path):
     cache.dir.mkdir(parents=True)
     cache.data_path.write_text('{"a": 1}\n\n{"a": 2}\n', encoding="utf-8")
     items = list(cache.iter_records())
-    assert [record for _, record in items] == [{"a": 1}, {"a": 2}]
+    assert [record for _, record, _ in items] == [{"a": 1}, {"a": 2}]

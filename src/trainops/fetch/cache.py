@@ -95,11 +95,12 @@ class DatasetCache:
                 f"remove {self.dir} and retry"
             )
 
-    def iter_records(self) -> Iterator[tuple[int, dict[str, Any]]]:
-        """Yield (utf-8 byte length of the JSONL line, parsed record) one at a time.
+    def iter_records(self) -> Iterator[tuple[int, dict[str, Any] | None, str | None]]:
+        """Yield (utf-8 byte length, parsed record, error message) per JSONL line.
 
-        Raises FileNotFoundError when data.jsonl does not exist, and ValueError
-        (with file:line context) when a line is not valid JSON.
+        Exactly one of record / error is None: a parse failure yields the error
+        message (with file:line context) and the stream continues with the
+        next line. Raises FileNotFoundError when data.jsonl does not exist.
         """
         if not self.data_path.exists():
             raise FileNotFoundError(
@@ -110,10 +111,10 @@ class DatasetCache:
                 line = raw.strip()
                 if not line:
                     continue
+                line_bytes = len(raw.encode("utf-8"))
                 try:
-                    record = json.loads(line)
+                    yield line_bytes, json.loads(line), None
                 except json.JSONDecodeError as exc:
-                    raise ValueError(
+                    yield line_bytes, None, (
                         f"{self.data_path}:{line_number}: invalid JSON line: {exc}"
-                    ) from exc
-                yield len(raw.encode("utf-8")), record
+                    )
