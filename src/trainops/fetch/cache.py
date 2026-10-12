@@ -53,3 +53,38 @@ class DatasetCache:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(asdict(meta), f, indent=2)
         os.replace(tmp, self.meta_path)
+
+    def append(self, line: str) -> int:
+        """Append one JSONL line to data.jsonl; returns the UTF-8 byte count written."""
+        self.dir.mkdir(parents=True, exist_ok=True)
+        data = line.encode("utf-8")
+        with open(self.data_path, "ab") as f:
+            f.write(data)
+        return len(data)
+
+    def ensure_consistent(self, meta: CacheMeta) -> None:
+        """Reconcile data.jsonl with meta before a run.
+
+        - File bigger than meta (crashed between checkpoints): truncate to meta.bytes.
+        - File smaller than meta, or one of them missing while the other has data: raise.
+        """
+        if not self.data_path.exists():
+            if meta.records > 0:
+                raise CacheCorruptedError(
+                    f"meta records {meta.records} rows but {self.data_path} is missing; "
+                    f"remove {self.dir} and retry"
+                )
+            return
+        if not self.meta_path.exists():
+            raise CacheCorruptedError(
+                f"{self.data_path} exists without meta.json; remove {self.dir} and retry"
+            )
+        actual = self.data_path.stat().st_size
+        if actual > meta.bytes:
+            with open(self.data_path, "r+b") as f:
+                f.truncate(meta.bytes)
+        elif actual < meta.bytes:
+            raise CacheCorruptedError(
+                f"{self.data_path} has {actual} bytes but meta says {meta.bytes}; "
+                f"remove {self.dir} and retry"
+            )
