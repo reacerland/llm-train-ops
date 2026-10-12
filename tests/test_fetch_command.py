@@ -106,3 +106,20 @@ def test_name_overrides_cache_key(tmp_path):
     meta = json.loads((result.cache_dir / "meta.json").read_text())
     assert meta["name"] == "my-ds"
     assert meta["dataset"] == "org/ds"
+
+
+def test_progress_log_at_checkpoint_in_non_tty(tmp_path, monkeypatch, capsys):
+    """Non-TTY (pytest capture): tqdm auto-disabled, checkpoint lines go to stderr."""
+    monkeypatch.setattr("trainops.fetch.command.CHECKPOINT_INTERVAL", 2)
+    run_fetch("org/ds", "default", "train", ALL_BYTES, tmp_path,
+              stream_fn=fake_stream_factory(ROWS))
+    err = capsys.readouterr().err
+    assert "progress:" in err
+    assert "records" in err
+
+
+def test_progress_disabled_is_quiet(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("trainops.fetch.command.CHECKPOINT_INTERVAL", 2)
+    run_fetch("org/ds", "default", "train", ALL_BYTES, tmp_path,
+              stream_fn=fake_stream_factory(ROWS), progress=False)
+    assert capsys.readouterr().err == ""
