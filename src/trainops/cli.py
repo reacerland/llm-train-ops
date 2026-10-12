@@ -1,3 +1,7 @@
+import logging
+import os
+import sys
+import traceback
 from pathlib import Path
 
 import typer
@@ -24,6 +28,7 @@ def fetch(
     cache_dir: Path = typer.Option(Path.home() / ".cache" / "trainops", help="Cache root directory"),
 ) -> None:
     """Fetch a ModelScope dataset into the local cache (streaming, size-capped)."""
+    logging.getLogger("modelscope").setLevel(logging.WARNING)  # keep progress readable
     try:
         size = parse_size(max_size)
     except ValueError as exc:
@@ -50,3 +55,27 @@ def fetch(
         if result.dataset_exhausted:
             typer.secho("warning: dataset exhausted before reaching target size",
                         fg=typer.colors.YELLOW)
+
+
+def main() -> None:
+    """Console entry point.
+
+    The ModelScope/HF stack leaves background HTTP state that can hang
+    interpreter shutdown (atexit joins / connection cleanup). All our output
+    is flushed and all checkpoints saved by the time we get here, so we skip
+    interpreter finalization entirely and exit with the original exit code.
+    """
+    code = 0
+    # The datasets/pyarrow resource-tracker child would otherwise warn about a
+    # 'leaked semaphore' when we force-exit; silence it for spawned children.
+    os.environ.setdefault("PYTHONWARNINGS", "ignore::UserWarning")
+    try:
+        app()
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+    except Exception:
+        traceback.print_exc()
+        code = 1
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)

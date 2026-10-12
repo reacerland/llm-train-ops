@@ -61,8 +61,9 @@ def run_fetch(
                 unit_divisor=1024, desc=f"fetch {dataset}",
                 disable=None if progress else True)
     exhausted = True
+    stream = stream_fn(dataset, subset, split)
     try:
-        for idx, row in enumerate(stream_fn(dataset, subset, split)):
+        for idx, row in enumerate(stream):
             if idx < meta.records:
                 continue  # resume: skip already-cached records
             line = json.dumps(row, ensure_ascii=False) + "\n"
@@ -80,6 +81,9 @@ def run_fetch(
                 exhausted = False
                 break
     finally:
+        close = getattr(stream, "close", None)  # abort the HTTP/file read promptly
+        if callable(close):
+            close()
         pbar.close()
         cache.save_meta(meta)
 
