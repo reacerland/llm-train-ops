@@ -17,7 +17,7 @@ def main() -> None:
 @app.command()
 def fetch(
     dataset: str = typer.Option(..., help="ModelScope dataset id, e.g. 'AI-ModelScope/xxx'"),
-    subset: str = typer.Option("default", help="Dataset subset name"),
+    subset: str | None = typer.Option(None, help="Dataset subset name (omit for datasets without configs)"),
     split: str = typer.Option("train", help="Dataset split"),
     max_size: str = typer.Option(..., "--max-size", help="Target cache size, e.g. '500MB', '2GB'"),
     cache_dir: Path = typer.Option(Path.home() / ".cache" / "trainops", help="Cache root directory"),

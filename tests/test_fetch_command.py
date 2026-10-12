@@ -90,3 +90,10 @@ def test_dataset_exhausted_before_target(tmp_path):
     assert result.dataset_exhausted is True
     assert result.records == 10
     assert result.bytes == ALL_BYTES
+
+
+def test_subset_none_uses_default_cache_dir(tmp_path):
+    result = run_fetch("org/ds", None, "train", ROW_BYTES, tmp_path,
+                       stream_fn=fake_stream_factory(ROWS))
+    assert result.cache_dir == tmp_path / "datasets" / "org__ds" / "default" / "train"
+    assert result.records == 1

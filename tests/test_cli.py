@@ -23,7 +23,7 @@ def test_fetch_command_success(tmp_path, monkeypatch):
                                  "--cache-dir", str(tmp_path)])
     assert result.exit_code == 0
     assert captured["dataset"] == "org/ds"
-    assert captured["subset"] == "default"
+    assert captured["subset"] is None
     assert captured["split"] == "train"
     assert captured["max_size"] == 2048
     assert "2048 bytes" in result.output

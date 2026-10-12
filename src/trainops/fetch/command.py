@@ -10,8 +10,9 @@ from .cache import DatasetCache
 from .streamer import stream_dataset
 
 CHECKPOINT_INTERVAL = 1000
+DEFAULT_SUBSET = "default"
 
-StreamFn = Callable[[str, str, str], Iterator[dict[str, Any]]]
+StreamFn = Callable[[str, str | None, str], Iterator[dict[str, Any]]]
 
 
 @dataclass
@@ -25,7 +26,7 @@ class FetchResult:
 
 def run_fetch(
     dataset: str,
-    subset: str,
+    subset: str | None,
     split: str,
     max_size: int,
     cache_dir: Path,
@@ -33,12 +34,14 @@ def run_fetch(
 ) -> FetchResult:
     """Fetch up to max_size bytes of raw records into the local cache.
 
+    - subset=None means "no named subset"; it is cached under the 'default'
+      directory and passed to the SDK as None.
     - Cache hit (cached bytes >= max_size): return without downloading.
     - Otherwise resume after meta.records rows and append until the quota is met
       or the dataset is exhausted. Metadata is checkpointed every
       CHECKPOINT_INTERVAL records and always on exit (including exceptions).
     """
-    cache = DatasetCache(cache_dir, dataset, subset, split)
+    cache = DatasetCache(cache_dir, dataset, subset or DEFAULT_SUBSET, split)
     meta = cache.load_meta()
     cache.ensure_consistent(meta)
 
