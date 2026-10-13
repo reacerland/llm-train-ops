@@ -81,3 +81,26 @@ def test_all_empty_docs_is_error(tmp_path):
     arrow = make_arrow(tmp_path, ["", "  "])
     with pytest.raises(PretokenizeError, match="web"):
         pretokenize(src(), WordLenTokenizer(), arrow, tmp_path)
+
+
+def test_pretokenize_streams_in_batches(tmp_path, monkeypatch):
+    """GB 级源不得整列载入内存：必须分批迭代（fetch/convert 的内存恒定原则）"""
+    rows = ["a bb", "ccc", "d e f"]
+
+    class FakeDataset:
+        column_names = ["text"]
+
+        def iter(self, batch_size=1000):
+            assert batch_size >= 1
+            for i in range(0, len(rows), batch_size):
+                yield {"text": rows[i:i + batch_size]}
+
+        def __getitem__(self, key):
+            raise AssertionError(
+                "pretokenize must stream batches, not load the whole column")
+
+    monkeypatch.setattr("datasets.load_from_disk", lambda p: FakeDataset())
+    pt = pretokenize(src(), WordLenTokenizer(), tmp_path / "fake-arrow",
+                     tmp_path)
+    assert pt.docs_total == 3
+    assert pt.tokens_total == 9

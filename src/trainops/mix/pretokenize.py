@@ -59,25 +59,28 @@ def pretokenize(source: SourceConfig, tokenizer: Tokenizer,
     eos = tokenizer.eos_token_id
 
     with open(tokens_path, "wb") as f:
-        for row_index, text in enumerate(ds[source.field], start=1):
-            if text is None:  # Arrow null: treat as an empty document
-                skipped_empty += 1
-                continue
-            try:
-                ids = list(tokenizer.encode(text))
-            except Exception as exc:
-                raise PretokenizeError(
-                    f"source {source.name!r} row {row_index}: encode failed: "
-                    f"{exc}") from exc
-            if not ids:
-                skipped_empty += 1
-                continue
-            doc = np.asarray(ids + [eos], dtype=np.uint32)
-            doc.tofile(f)
-            offsets.append(offsets[-1] + len(doc))
-            docs_total += 1
-            tokens_total += len(doc)
-            max_token = max(max_token, max(ids), eos)
+        row_index = 0
+        for batch in ds.iter(batch_size=1000):
+            for text in batch[source.field]:
+                row_index += 1
+                if text is None:  # Arrow null: treat as an empty document
+                    skipped_empty += 1
+                    continue
+                try:
+                    ids = list(tokenizer.encode(text))
+                except Exception as exc:
+                    raise PretokenizeError(
+                        f"source {source.name!r} row {row_index}: encode failed: "
+                        f"{exc}") from exc
+                if not ids:
+                    skipped_empty += 1
+                    continue
+                doc = np.asarray(ids + [eos], dtype=np.uint32)
+                doc.tofile(f)
+                offsets.append(offsets[-1] + len(doc))
+                docs_total += 1
+                tokens_total += len(doc)
+                max_token = max(max_token, max(ids), eos)
 
     if docs_total == 0:
         raise PretokenizeError(
