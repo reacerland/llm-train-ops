@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from trainops.convert.command import ARROW_DIR_NAME, OutputExistsError
 
-from .config import MixConfig, load_config
+from .config import MixConfig, resolve_mix_config
 from .pack import PackResult, pack
 from .pretokenize import PretokenizedSource, iter_docs, pretokenize
 from .tokenizer import Tokenizer, load_tokenizer
@@ -47,7 +47,7 @@ def run_mix(config_path: Path, cache_dir: Path, output: Path | None = None,
     """
     config_path = Path(config_path)
     cache_dir = Path(cache_dir)
-    config = load_config(config_path)
+    config, config_output = resolve_mix_config(config_path)
     tokenizer = load_tokenizer(config.tokenizer)
 
     arrow_dirs = {
@@ -62,7 +62,7 @@ def run_mix(config_path: Path, cache_dir: Path, output: Path | None = None,
                 f"{arrow_dirs[s.name]}; run convert first")
 
     output_dir = Path(output) if output else \
-        cache_dir / MIXTURES_DIR_NAME / config_path.stem
+        (config_output or cache_dir / MIXTURES_DIR_NAME / config_path.stem)
     if output_dir.exists() and not overwrite:
         raise OutputExistsError(f"output directory already exists: {output_dir}")
 
