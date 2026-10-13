@@ -7,8 +7,19 @@ dependencies = [
     "modelscope[datasets]>=1.20",
     "tomli>=2; python_version < \"3.11\"",
     "tqdm>=4.64",
+    "torch",
+    "torchvision",
     "typer>=0.12",
 ]
+
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu132" }
+torchvision = { index = "pytorch-cu132" }
 
 [project.optional-dependencies]
 hf = ["transformers>=4.40"]
