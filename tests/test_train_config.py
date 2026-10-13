@@ -64,6 +64,29 @@ def test_load_task_config_defaults_and_no_prompts(tmp_path):
     assert cfg.train.warmup_steps == 0
     assert cfg.train.log_interval == 10
     assert cfg.train.save_interval == 500
+    assert cfg.train.eval_interval is None    # 缺省不做评估
+    assert cfg.train.eval_batches == 20       # 缺省评估批量
+
+
+def test_train_eval_params(tmp_path):
+    cfg = load_task_config(write_toml(
+        tmp_path, extra_train='eval_interval = 100\neval_batches = 5\n'))
+    assert cfg.train.eval_interval == 100
+    assert cfg.train.eval_batches == 5
+
+
+def test_train_eval_interval_must_be_positive_int(tmp_path):
+    for bad in ("0", "-3", "1.5", "'abc'"):
+        with pytest.raises(ConfigError, match="eval_interval"):
+            load_task_config(write_toml(
+                tmp_path, extra_train=f'eval_interval = {bad}\n'))
+
+
+def test_train_eval_batches_must_be_positive_int(tmp_path):
+    for bad in ("0", "-1", "2.5", "'abc'"):
+        with pytest.raises(ConfigError, match="eval_batches"):
+            load_task_config(write_toml(
+                tmp_path, extra_train=f'eval_batches = {bad}\n'))
 
 
 def test_train_overrides(tmp_path):

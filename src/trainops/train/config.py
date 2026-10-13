@@ -24,6 +24,7 @@ DEFAULT_LOG_INTERVAL = 10
 DEFAULT_SAVE_INTERVAL = 500
 DEFAULT_SEED = 42
 DEFAULT_MAX_NEW_TOKENS = 50
+DEFAULT_EVAL_BATCHES = 20
 
 
 @dataclass
@@ -42,6 +43,8 @@ class TrainParams:
     log_interval: int = DEFAULT_LOG_INTERVAL
     save_interval: int = DEFAULT_SAVE_INTERVAL
     seed: int = DEFAULT_SEED
+    eval_interval: int | None = None      # None: no periodic eval
+    eval_batches: int = DEFAULT_EVAL_BATCHES
 
 
 @dataclass
@@ -113,10 +116,18 @@ def _parse_train(raw: object, path: Path) -> TrainParams:
     if not isinstance(seed, int) or isinstance(seed, bool):
         raise ConfigError(f"{path}: [train] seed must be an integer, "
                           f"got {seed!r}")
+    eval_interval = raw.get("eval_interval")
+    if eval_interval is not None and (not isinstance(eval_interval, int)
+                                      or isinstance(eval_interval, bool)
+                                      or eval_interval <= 0):
+        raise ConfigError(f"{path}: [train] eval_interval must be a positive "
+                          f"integer, got {eval_interval!r}")
+    eval_batches = _positive_int(raw, "eval_batches", DEFAULT_EVAL_BATCHES, path)
     return TrainParams(total_tokens=total_tokens, batch_size=batch_size,
                        lr=float(lr), warmup_steps=warmup_steps,
                        log_interval=log_interval, save_interval=save_interval,
-                       seed=seed)
+                       seed=seed, eval_interval=eval_interval,
+                       eval_batches=eval_batches)
 
 
 def _parse_prompts(raw: object, path: Path) -> PromptsConfig | None:

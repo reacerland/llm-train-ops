@@ -25,13 +25,29 @@ class Mixture:
 
 def load_mixture(directory: Path) -> Mixture:
     """Load a mix output directory (tokens.bin + meta.json) via memmap."""
-    directory = Path(directory)
-    tokens_path = directory / "tokens.bin"
+    return _load_tokens(Path(directory), "tokens.bin", "run mix first")
+
+
+def load_valid_mixture(directory: Path) -> Mixture:
+    """Load the valid holdout (valid_tokens.bin) from a mix output directory.
+
+    Shares meta.json with the train tokens (same dtype/max_seq_len/
+    vocab_size); raises MixtureNotFoundError when the mix config had no
+    source with role "valid".
+    """
+    return _load_tokens(Path(directory), "valid_tokens.bin",
+                        "no valid_tokens.bin: run mix with at least one "
+                        "source with role = \"valid\"")
+
+
+def _load_tokens(directory: Path, tokens_name: str,
+                 not_found_hint: str) -> Mixture:
+    tokens_path = directory / tokens_name
     meta_path = directory / "meta.json"
     if not tokens_path.is_file() or not meta_path.is_file():
         raise MixtureNotFoundError(
-            f"mixture not found at {directory} (need tokens.bin + meta.json); "
-            f"run mix first")
+            f"mixture not found at {directory} (need {tokens_name} + "
+            f"meta.json); {not_found_hint}")
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     if meta.get("format") != META_FORMAT:
         raise ValueError(

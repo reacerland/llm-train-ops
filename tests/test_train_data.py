@@ -3,18 +3,21 @@ import json
 import numpy as np
 import pytest
 
-from trainops.train.data import (Batcher, MixtureNotFoundError, load_mixture)
+from trainops.train.data import (Batcher, MixtureNotFoundError, load_mixture,
+                                 load_valid_mixture)
 
 
 def write_mixture(tmp_path, num_seqs=6, seq_len=4, vocab_size=100,
-                  dtype="uint16"):
+                  dtype="uint16", tokens_name="tokens.bin", with_valid_meta=False):
     seqs = np.arange(num_seqs * seq_len, dtype=np.uint16).reshape(num_seqs,
                                                                   seq_len)
     seqs = (seqs % vocab_size).astype(dtype)
-    (tmp_path / "tokens.bin").write_bytes(seqs.tobytes())
+    (tmp_path / tokens_name).write_bytes(seqs.tobytes())
     meta = {"format": "trainops-mix/v1", "dtype": dtype,
             "max_seq_len": seq_len, "vocab_size": vocab_size,
             "num_sequences": num_seqs}
+    if with_valid_meta:
+        meta["valid"] = {"num_sequences": num_seqs}
     (tmp_path / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
     return tmp_path
 
@@ -53,6 +56,22 @@ def test_load_mixture_bad_format(tmp_path):
     (tmp_path / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
     with pytest.raises(ValueError, match="format"):
         load_mixture(tmp_path)
+
+
+def test_load_valid_mixture_ok(tmp_path):
+    write_mixture(tmp_path)   # train tokens.bin + meta.json
+    write_mixture(tmp_path, num_seqs=3, tokens_name="valid_tokens.bin",
+                  with_valid_meta=True)
+    m = load_valid_mixture(tmp_path)
+    assert m.sequences.shape == (3, 4)
+    assert m.vocab_size == 100
+    assert m.num_sequences == 3
+
+
+def test_load_valid_mixture_missing(tmp_path):
+    write_mixture(tmp_path)   # 只有 train，无 valid
+    with pytest.raises(MixtureNotFoundError, match="valid"):
+        load_valid_mixture(tmp_path)
 
 
 def test_next_batch_dtype_and_shape(tmp_path):

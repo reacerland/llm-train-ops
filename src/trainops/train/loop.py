@@ -15,10 +15,12 @@ import torch.nn.functional as F
 
 from .checkpoint import load_checkpoint, save_checkpoint
 from .config import TaskConfig
-from .data import Batcher, load_mixture
+from .data import Batcher, load_mixture, load_valid_mixture
+from .evaluate import evaluate_split
 from .model import load_model
 
 LOSS_LOG_NAME = "loss.jsonl"
+EVAL_LOG_NAME = "eval.jsonl"
 CHECKPOINT_NAME = "checkpoint.pt"
 FINAL_WEIGHTS_NAME = "model_final.safetensors"
 CONFIG_SNAPSHOT_NAME = "task.toml"
@@ -31,6 +33,7 @@ class TrainResult:
     total_steps: int
     final_step: int
     final_loss: float
+    final_eval: dict | None = None   # last valid-split eval entry, if enabled
 
 
 def run_training(config: TaskConfig, mixture_dir: Path, output_dir: Path,
@@ -52,6 +55,10 @@ def run_training(config: TaskConfig, mixture_dir: Path, output_dir: Path,
     random.seed(params.seed)
 
     mixture = load_mixture(mixture_dir)
+    # Fail fast before any training: eval_interval requires a valid holdout.
+    valid_mixture = None
+    if params.eval_interval is not None:
+        valid_mixture = load_valid_mixture(mixture_dir)
     model = load_model(config.model, config.path.parent)
     optimizer = torch.optim.AdamW(model.parameters(), lr=params.lr,
                                   betas=(0.9, 0.95), weight_decay=0.1)
@@ -79,9 +86,11 @@ def run_training(config: TaskConfig, mixture_dir: Path, output_dir: Path,
 
     output_dir.mkdir(parents=True, exist_ok=True)
     loss_path = output_dir / LOSS_LOG_NAME
+    eval_path = output_dir / EVAL_LOG_NAME
     tokens_per_step = params.batch_size * mixture.max_seq_len
     start_time = time.perf_counter()
     last_loss = float("nan")
+    final_eval = None
 
     for step in range(start_step + 1, total_steps + 1):
         batch = torch.from_numpy(batcher.next_batch()).to(device)
@@ -124,6 +133,26 @@ def run_training(config: TaskConfig, mixture_dir: Path, output_dir: Path,
                             optimizer=optimizer, scheduler=scheduler,
                             step=step, batcher=batcher)
 
+        if valid_mixture is not None and (
+                step % params.eval_interval == 0 or step == total_steps):
+            # Seeded, fixed batch selection: same batches at every eval
+            # point, so curves are comparable and reruns reproduce.
+            with open(eval_path, "a", encoding="utf-8") as f:
+                for split, m, seed in (("valid", valid_mixture, params.seed),
+                                       ("train", mixture, params.seed + 1)):
+                    metrics = evaluate_split(
+                        model, m, params.batch_size, params.eval_batches,
+                        seed=seed, device=device, use_bf16=use_bf16)
+                    entry = {"step": step, "split": split, **metrics}
+                    f.write(json.dumps(entry) + "\n")
+                    if split == "valid":
+                        final_eval = entry
+            if progress:
+                print(f"step {step}/{total_steps} "
+                      f"valid ppl={final_eval['ppl']:.2f} "
+                      f"top1={final_eval['top1']:.3f} "
+                      f"top5={final_eval['top5']:.3f}", flush=True)
+
         if _step_hook is not None:
             _step_hook(step)
 
@@ -138,7 +167,8 @@ def run_training(config: TaskConfig, mixture_dir: Path, output_dir: Path,
                          output_dir / SAMPLES_NAME)
 
     return TrainResult(output_dir=output_dir, total_steps=total_steps,
-                       final_step=total_steps, final_loss=last_loss)
+                       final_step=total_steps, final_loss=last_loss,
+                       final_eval=final_eval)
 
 
 def _lr_scale(step: int, warmup_steps: int, total_steps: int) -> float:
