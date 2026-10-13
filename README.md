@@ -52,6 +52,7 @@ trainops mix --config mix.toml --cache-dir ~/.cache/trainops
 - 配置文件为 TOML：声明多个数据源（各指向 `convert` 产物的缓存别名）与混合比例、tokenizer、`max_seq_len`、`seed`
 - 文档级加权不放回抽样：按 `ratio` 从各源抽文档，编码后补 EOS 拼接成连续 token 流，按 `max_seq_len` 硬切成定长序列；某源抽完即停止并报告（产物可用，exit 0）
 - tokenizer 两种形态：预置名 `"llama2"`（需 `uv pip install -e ".[hf]"`，vocab 32000），或自定义 Python 类文件（鸭子类型接口：`eos_token_id` / `vocab_size` / `encode(text) -> list[int]`，不添加特殊符号）
+- 预置 tokenizer 只从本地 HuggingFace 缓存加载（`local_files_only=True`），不会联网；缓存中不存在时报错并提示先手动下载
 - 固定 `seed`（默认 42）保证同配置重跑产物逐字节一致
 - 产物为训练侧零加工格式：`tokens.bin`（uint16/uint32 扁平定长序列）+ `meta.json`（各源配置 vs 实际占比、耗尽源等）
 
@@ -109,6 +110,13 @@ name = "web"
 dataset = "my-web"
 ratio = 0.7
 
+[[data.source]]
+name = "heldout"
+dataset = "my-valid"
+split = "validation"
+ratio = 1.0
+role = "valid"                # 只做验证，绝不进训练数据
+
 [model]
 file = "models/gpt.py"        # 相对配置文件目录解析
 class = "GPT"
@@ -124,6 +132,8 @@ lr = 3.0e-4
 warmup_steps = 200
 log_interval = 10
 save_interval = 500
+eval_interval = 500           # 可选:每 N 步评估一次 PPL/top-k;缺省不评估
+eval_batches = 20             # 每次评估取多少 batch(固定 seed 选取,可复现)
 seed = 42
 
 [prompts]                     # 可选:训完用最终权重生成样本
@@ -137,6 +147,18 @@ max_new_tokens = 50
 - 产出目录内容:`model_final.safetensors`(最终权重)、`loss.jsonl`(每 log_interval 一步的 step/loss/lr/吞吐)、`checkpoint.pt`(每 save_interval 覆盖更新,含 optimizer 与 RNG 状态)、`samples.txt`(配了 [prompts] 才有)、`task.toml`(配置快照)
 - 断点续训:`trainops train --config task.toml --output runs/task-001 --resume` 从产出目录的 checkpoint.pt 恢复,轨迹与一次性跑完一致;`--resume` 与 `--overwrite` 互斥
 - 冒烟与正式训练同一条命令,只是两份配置;冒烟看 loss.jsonl 与 samples.txt 人工确认后再跑正式
+
+## plot：训练曲线可视化
+
+```bash
+trainops plot --input runs/task-001/eval.jsonl \
+    --x step --y loss,ppl,top1,top5 \
+    --output curves.png     # 可选;缺省 <eval.jsonl 同级>/eval_curves.png
+```
+
+- 读取 train 产出的 `eval.jsonl`,train/valid 两条曲线画在同一坐标系,直接对照是否过拟合
+- `--y` 逗号分隔多个指标时生成纵向堆叠的子图(共享 x 轴);`--x`/`--y` 可指定 eval.jsonl 中的任意数值字段(如 `step`/`loss`/`ppl`/`top1`/`top5`)
+- 字段不存在时报错并列出可用字段;无头 CI 环境直接出 PNG,无需显示服务
 
 ## 测试
 

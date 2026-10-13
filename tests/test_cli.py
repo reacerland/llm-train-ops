@@ -292,3 +292,35 @@ def test_mix_command_tokenizer_error_exit_1(tmp_path, monkeypatch):
                                  "--cache-dir", str(tmp_path)])
     assert result.exit_code == 1
     assert "tok.py" in result.output
+
+
+def test_plot_command_success(tmp_path):
+    import json
+    entries = [{"step": s, "split": split, "loss": 2.0, "ppl": 7.0,
+                "top1": 0.5, "top5": 0.8, "tokens": 100}
+               for s in (1, 2) for split in ("valid", "train")]
+    eval_path = tmp_path / "eval.jsonl"
+    eval_path.write_text("\n".join(json.dumps(e) for e in entries) + "\n",
+                         encoding="utf-8")
+    out = tmp_path / "curves.png"
+    result = runner.invoke(app, ["plot", "--input", str(eval_path),
+                                 "--y", "ppl,top1", "--output", str(out)])
+    assert result.exit_code == 0
+    assert out.is_file()
+
+
+def test_plot_command_missing_input_exit_1(tmp_path):
+    result = runner.invoke(app, ["plot", "--input",
+                                 str(tmp_path / "nope.jsonl")])
+    assert result.exit_code == 1
+    assert "not found" in result.output
+
+
+def test_plot_command_unknown_field_exit_1(tmp_path):
+    eval_path = tmp_path / "eval.jsonl"
+    eval_path.write_text('{"step": 1, "split": "valid", "ppl": 7.0}\n',
+                         encoding="utf-8")
+    result = runner.invoke(app, ["plot", "--input", str(eval_path),
+                                 "--y", "accuracy"])
+    assert result.exit_code == 1
+    assert "accuracy" in result.output

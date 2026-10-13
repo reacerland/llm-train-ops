@@ -24,6 +24,7 @@ from trainops.train.config import load_task_config
 from trainops.train.data import MixtureNotFoundError
 from trainops.train.loop import run_training
 from trainops.train.model import ModelLoadError
+from trainops.train.plot import PlotError, parse_y_metrics, run_plot
 
 app = typer.Typer(help="LLM train CI/CD toolkit")
 
@@ -158,6 +159,12 @@ def mix(
                    f"{s['configured_ratio']:.2%}, actual "
                    f"{s['tokens'] / total:.2%} "
                    f"({s['docs_sampled']}/{s['docs_total']} docs)")
+    if result.valid is not None:
+        typer.echo(f"  valid holdout: {result.valid['num_sequences']} sequences, "
+                   f"{result.valid['total_tokens']} tokens -> valid_tokens.bin")
+        for s in result.valid["sources"]:
+            typer.echo(f"    source {s['name']}: {s['docs_sampled']}/"
+                       f"{s['docs_total']} docs, {s['tokens']} tokens")
     if result.dropped_tail_tokens:
         typer.secho(f"warning: dropped incomplete tail of "
                     f"{result.dropped_tail_tokens} tokens",
@@ -218,6 +225,35 @@ def train(
 
     typer.echo(f"done: {result.final_step} steps, "
                f"final loss {result.final_loss:.4f} -> {result.output_dir}")
+    if result.final_eval is not None:
+        e = result.final_eval
+        typer.echo(f"final valid: ppl={e['ppl']:.2f} loss={e['loss']:.4f} "
+                   f"top1={e['top1']:.3f} top5={e['top5']:.3f} "
+                   f"({e['tokens']} tokens)")
+
+
+@app.command()
+def plot(
+    input: Path = typer.Option(..., "--input",
+                               help="Path to an eval.jsonl produced by train"),
+    x: str = typer.Option("step", help="Field on the x axis, e.g. 'step'"),
+    y: str = typer.Option("ppl", help="Comma-separated y metrics, "
+                          "e.g. 'ppl' or 'loss,ppl,top1,top5'"),
+    output: Path | None = typer.Option(
+        None, help="Output PNG path (default: eval_curves.png next to input)"),
+) -> None:
+    """Plot train/valid curves from eval.jsonl (overfitting view)."""
+    try:
+        metrics = parse_y_metrics(y)
+        result = run_plot(input, x, metrics, output)
+    except PlotError as exc:
+        typer.secho(f"error: {exc}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:
+        typer.secho(f"error: failed to plot {input}: {exc}",
+                    err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"done: {', '.join(metrics)} vs {x} -> {result}")
 
 
 def main() -> None:
