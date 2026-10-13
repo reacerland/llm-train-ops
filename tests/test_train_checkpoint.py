@@ -61,7 +61,7 @@ def test_checkpoint_roundtrip(tmp_path):
     save_checkpoint(ckpt, model=state["model"], optimizer=state["optimizer"],
                     scheduler=state["scheduler"], step=5,
                     batcher=state["batcher"])
-    assert not tmp_path / "checkpoint.pt.tmp"  # no temp residue
+    assert not (tmp_path / "checkpoint.pt.tmp").exists()  # no temp residue
 
     fresh = make_state(mixture, seed=999)
     step = load_checkpoint(ckpt, model=fresh["model"],
