@@ -41,10 +41,12 @@ def save_checkpoint(path: Path, *, model: torch.nn.Module,
 def load_checkpoint(path: Path, *, model: torch.nn.Module,
                     optimizer: torch.optim.Optimizer,
                     scheduler: torch.optim.lr_scheduler.LRScheduler,
-                    batcher: Batcher) -> int:
+                    batcher: Batcher,
+                    device: torch.device | None = None) -> int:
     """Restore full training state from ``path``; returns the saved step.
 
-    Loads onto CPU; the caller moves the model back to its device.
+    Loads onto CPU. If ``device`` is given, optimizer state tensors are
+    moved there (the caller moves the model itself).
     """
     path = Path(path)
     if not path.is_file():
@@ -59,4 +61,9 @@ def load_checkpoint(path: Path, *, model: torch.nn.Module,
     random.setstate(state["python_rng"])
     if "cuda_rng" in state and torch.cuda.is_available():
         torch.cuda.set_rng_state_all(state["cuda_rng"])
+    if device is not None:
+        for param_state in optimizer.state.values():
+            for key, value in param_state.items():
+                if isinstance(value, torch.Tensor):
+                    param_state[key] = value.to(device)
     return state["step"]
