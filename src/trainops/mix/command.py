@@ -82,7 +82,6 @@ def run_mix(config_path: Path, cache_dir: Path, output: Path | None = None,
     _atomic_write_json(meta_path, meta)
 
     bytes_total = tokens_path.stat().st_size + meta_path.stat().st_size
-    _print_summary(config, meta, bytes_total)
     return MixResult(
         output_dir=output_dir,
         num_sequences=result.sequences,
@@ -175,20 +174,3 @@ def _atomic_write_json(path: Path, data: dict) -> None:
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False),
                    encoding="utf-8")
     os.replace(tmp, path)
-
-
-def _print_summary(config: MixConfig, meta: dict, bytes_total: int) -> None:
-    total = meta["total_tokens"] or 1
-    print(f"done: {meta['num_sequences']} sequences, "
-          f"{meta['total_tokens']} tokens ({bytes_total} bytes)")
-    for s in meta["sources"]:
-        actual = s["tokens"] / total
-        print(f"  source {s['name']}: configured {s['configured_ratio']:.2%}, "
-              f"actual {actual:.2%} ({s['docs_sampled']}/{s['docs_total']} docs, "
-              f"{s['tokens']} tokens)")
-    if meta["dropped_tail_tokens"]:
-        print(f"  dropped tail: {meta['dropped_tail_tokens']} tokens "
-              f"(incomplete final sequence)")
-    for name in meta["exhausted_sources"]:
-        print(f"warning: source {name!r} exhausted; packing stopped "
-              f"(output is usable)")

@@ -186,3 +186,12 @@ def test_uint16_overflow_rejected(tmp_path):
         [("web", "web-alias", 1.0, WEB_ROWS)], stem="lie")
     with pytest.raises(ValueError, match="uint16"):
         run_mix(config, tmp_path / "cache", progress=False)
+
+
+def test_run_mix_does_not_print_summary(mix_setup, capsys):
+    """总结输出属 CLI 层职责；run_mix 作为库调用不应向 stdout 打印"""
+    tmp_path, config = mix_setup
+    run_mix(config, tmp_path / "cache", progress=False)
+    captured = capsys.readouterr()
+    assert "done:" not in captured.out
+    assert "configured" not in captured.out
