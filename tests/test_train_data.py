@@ -40,6 +40,12 @@ def test_load_mixture_missing_tokens(tmp_path):
         load_mixture(tmp_path)
 
 
+def test_load_mixture_empty(tmp_path):
+    write_mixture(tmp_path, num_seqs=0)
+    with pytest.raises(ValueError, match="no sequences"):
+        load_mixture(tmp_path)
+
+
 def test_load_mixture_bad_format(tmp_path):
     write_mixture(tmp_path)
     meta = json.loads((tmp_path / "meta.json").read_text())

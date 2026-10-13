@@ -39,12 +39,16 @@ def load_mixture(directory: Path) -> Mixture:
             f"expected {META_FORMAT!r}")
     dtype = DTYPES[meta["dtype"]]
     max_seq_len = meta["max_seq_len"]
+    if tokens_path.stat().st_size == 0:
+        raise ValueError(f"{tokens_path}: no sequences (empty mixture)")
     flat = np.memmap(tokens_path, dtype=dtype, mode="r")
     if flat.size % max_seq_len != 0:
         raise ValueError(
             f"{tokens_path}: {flat.size} tokens is not a multiple of "
             f"max_seq_len={max_seq_len}")
     sequences = flat.reshape(-1, max_seq_len)
+    if sequences.shape[0] == 0:
+        raise ValueError(f"{tokens_path}: no sequences (empty mixture)")
     return Mixture(sequences=sequences, vocab_size=meta["vocab_size"],
                    max_seq_len=max_seq_len, num_sequences=sequences.shape[0])
 
