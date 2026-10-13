@@ -121,8 +121,16 @@ def _load_llama2() -> Tokenizer:
         raise TokenizerLoadError(
             "the 'llama2' preset requires the 'transformers' package: "
             "pip install trainops[hf]") from exc
-    return _HFTokenizerWrapper(AutoTokenizer.from_pretrained(
-        "NousResearch/Llama-2-7b-hf"))
+    try:
+        hf_tokenizer = AutoTokenizer.from_pretrained(
+            "NousResearch/Llama-2-7b-hf", local_files_only=True)
+    except Exception as exc:
+        raise TokenizerLoadError(
+            "the 'llama2' preset tokenizer (NousResearch/Llama-2-7b-hf) is "
+            "not in the local HuggingFace cache; download it once with "
+            "AutoTokenizer.from_pretrained('NousResearch/Llama-2-7b-hf') "
+            "before running offline") from exc
+    return _HFTokenizerWrapper(hf_tokenizer)
 
 
 PRESETS["llama2"] = _load_llama2

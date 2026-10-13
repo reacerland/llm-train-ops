@@ -85,6 +85,38 @@ def test_llama2_preset_without_transformers(monkeypatch):
         load_tokenizer("llama2")
 
 
+def _fake_transformers(monkeypatch, from_pretrained):
+    """Install a stub transformers module whose AutoTokenizer.from_pretrained
+    is the given callable; returns it."""
+    import types
+    stub = types.ModuleType("transformers")
+    stub.AutoTokenizer = types.SimpleNamespace(from_pretrained=from_pretrained)
+    monkeypatch.setitem(sys.modules, "transformers", stub)
+    return stub
+
+
+def test_llama2_preset_loads_from_local_cache_only(monkeypatch):
+    calls = []
+
+    def fake_from_pretrained(model_id, **kwargs):
+        calls.append((model_id, kwargs))
+        return FakeTokenizer()
+
+    _fake_transformers(monkeypatch, fake_from_pretrained)
+    tok = load_tokenizer("llama2")
+    assert tok.vocab_size == 100
+    assert calls == [("NousResearch/Llama-2-7b-hf", {"local_files_only": True})]
+
+
+def test_llama2_preset_not_cached_errors(monkeypatch):
+    def fake_from_pretrained(model_id, **kwargs):
+        raise OSError("NousResearch/Llama-2-7b-hf is not in the cache")
+
+    _fake_transformers(monkeypatch, fake_from_pretrained)
+    with pytest.raises(TokenizerLoadError, match="cache"):
+        load_tokenizer("llama2")
+
+
 def test_hf_wrapper_no_special_tokens():
     calls = []
 
