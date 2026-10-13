@@ -110,6 +110,9 @@ class _HFTokenizerWrapper:
     def encode(self, text: str) -> list[int]:
         return self._hf.encode(text, add_special_tokens=False)
 
+    def decode(self, ids: list[int]) -> str:
+        return self._hf.decode(ids)
+
 
 def _load_llama2() -> Tokenizer:
     try:
