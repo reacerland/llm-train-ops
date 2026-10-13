@@ -182,3 +182,113 @@ def test_convert_command_missing_field_exit_1(tmp_path, monkeypatch):
                                  "--fields", "text", "--cache-dir", str(tmp_path)])
     assert result.exit_code == 1
     assert "title" in result.output
+
+
+from trainops.mix.command import MixCacheNotFoundError, MixResult  # noqa: E402
+from trainops.mix.config import ConfigError  # noqa: E402
+from trainops.mix.tokenizer import TokenizerLoadError  # noqa: E402
+
+
+def _fake_run_mix(captured):
+    def fake(config_path, cache_dir, output=None, overwrite=False, progress=True):
+        captured.update(config_path=config_path, cache_dir=cache_dir,
+                        output=output, overwrite=overwrite)
+        return MixResult(
+            output_dir=output or cache_dir / "mixtures" / "mix",
+            num_sequences=128, total_tokens=128 * 8, dropped_tail_tokens=3,
+            exhausted_sources=[], sources_meta=[
+                {"name": "web", "configured_ratio": 0.6, "docs_total": 10,
+                 "docs_sampled": 8, "tokens": 600, "dataset": "web-alias",
+                 "subset": "default", "split": "train"},
+            ], bytes=4096)
+
+    return fake
+
+
+def test_mix_command_success(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr("trainops.cli.run_mix", _fake_run_mix(captured))
+    config = tmp_path / "mix.toml"
+    config.write_text("tokenizer = 'llama2'\n", encoding="utf-8")
+    result = runner.invoke(app, ["mix", "--config", str(config),
+                                 "--cache-dir", str(tmp_path)])
+    assert result.exit_code == 0
+    assert captured["config_path"] == config
+    assert captured["cache_dir"] == tmp_path
+    assert captured["output"] is None
+    assert captured["overwrite"] is False
+    assert "128 sequences" in result.output
+    assert "60.00%" in result.output
+
+
+def test_mix_command_exhausted_warning(tmp_path, monkeypatch):
+    def fake(config_path, cache_dir, output=None, overwrite=False, progress=True):
+        result = _fake_run_mix({})(config_path, cache_dir, output, overwrite,
+                                   progress)
+        result.exhausted_sources = ["code"]
+        return result
+
+    monkeypatch.setattr("trainops.cli.run_mix", fake)
+    config = tmp_path / "mix.toml"
+    config.write_text("tokenizer = 'llama2'\n", encoding="utf-8")
+    result = runner.invoke(app, ["mix", "--config", str(config),
+                                 "--cache-dir", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "exhausted" in result.output
+    assert "code" in result.output
+
+
+def test_mix_command_config_error_exit_1(tmp_path, monkeypatch):
+    def failing(config_path, cache_dir, output=None, overwrite=False,
+                progress=True):
+        raise ConfigError("mix.toml: missing required field 'max_seq_len'")
+
+    monkeypatch.setattr("trainops.cli.run_mix", failing)
+    config = tmp_path / "mix.toml"
+    config.write_text("", encoding="utf-8")
+    result = runner.invoke(app, ["mix", "--config", str(config),
+                                 "--cache-dir", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "max_seq_len" in result.output
+
+
+def test_mix_command_cache_not_found_exit_1(tmp_path, monkeypatch):
+    def failing(config_path, cache_dir, output=None, overwrite=False,
+                progress=True):
+        raise MixCacheNotFoundError("run convert first")
+
+    monkeypatch.setattr("trainops.cli.run_mix", failing)
+    config = tmp_path / "mix.toml"
+    config.write_text("", encoding="utf-8")
+    result = runner.invoke(app, ["mix", "--config", str(config),
+                                 "--cache-dir", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "convert" in result.output
+
+
+def test_mix_command_output_exists_exit_1(tmp_path, monkeypatch):
+    def failing(config_path, cache_dir, output=None, overwrite=False,
+                progress=True):
+        raise OutputExistsError("output directory already exists: /x")
+
+    monkeypatch.setattr("trainops.cli.run_mix", failing)
+    config = tmp_path / "mix.toml"
+    config.write_text("", encoding="utf-8")
+    result = runner.invoke(app, ["mix", "--config", str(config),
+                                 "--cache-dir", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "--overwrite" in result.output
+
+
+def test_mix_command_tokenizer_error_exit_1(tmp_path, monkeypatch):
+    def failing(config_path, cache_dir, output=None, overwrite=False,
+                progress=True):
+        raise TokenizerLoadError("tokenizer class file not found: /x/tok.py")
+
+    monkeypatch.setattr("trainops.cli.run_mix", failing)
+    config = tmp_path / "mix.toml"
+    config.write_text("", encoding="utf-8")
+    result = runner.invoke(app, ["mix", "--config", str(config),
+                                 "--cache-dir", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "tok.py" in result.output

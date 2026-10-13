@@ -5,11 +5,13 @@ description = "LLM train CI/CD toolkit"
 requires-python = ">=3.10"
 dependencies = [
     "modelscope[datasets]>=1.20",
+    "tomli>=2; python_version < \"3.11\"",
     "tqdm>=4.64",
     "typer>=0.12",
 ]
 
 [project.optional-dependencies]
+hf = ["transformers>=4.40"]
 dev = ["pytest>=8"]
 
 [project.scripts]

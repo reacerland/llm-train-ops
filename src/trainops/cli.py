@@ -15,6 +15,10 @@ from trainops.convert.transform import MissingFieldError, parse_fields
 from trainops.fetch.cache import CacheCorruptedError
 from trainops.fetch.command import run_fetch
 from trainops.fetch.sizeparse import parse_size
+from trainops.mix.command import MixCacheNotFoundError, run_mix
+from trainops.mix.config import ConfigError
+from trainops.mix.pretokenize import PretokenizeError
+from trainops.mix.tokenizer import TokenizerLoadError
 
 app = typer.Typer(help="LLM train CI/CD toolkit")
 
@@ -107,6 +111,55 @@ def convert(
     if result.skipped:
         typer.secho(f"warning: skipped {result.skipped} bad records",
                     fg=typer.colors.YELLOW)
+
+
+@app.command()
+def mix(
+    config: Path = typer.Option(..., "--config", help="Path to the mix TOML config file"),
+    output: Path | None = typer.Option(None, help="Output directory (default: <cache>/mixtures/<config-stem>)"),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Replace an existing output directory"),
+    cache_dir: Path = typer.Option(Path.home() / ".cache" / "trainops", help="Cache root directory"),
+) -> None:
+    """Mix multiple converted datasets into a tokenized, packed training set."""
+    try:
+        result = run_mix(config, cache_dir, output=output, overwrite=overwrite)
+    except ConfigError as exc:
+        typer.secho(f"error: {exc}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    except TokenizerLoadError as exc:
+        typer.secho(f"error: {exc}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    except MixCacheNotFoundError as exc:
+        typer.secho(f"error: {exc}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    except OutputExistsError as exc:
+        typer.secho(f"error: {exc} (use --overwrite to replace it)",
+                    err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    except (PretokenizeError, ValueError) as exc:
+        typer.secho(f"error: {exc}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:
+        typer.secho(f"error: failed to mix datasets from {config}: {exc}",
+                    err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"done: {result.num_sequences} sequences, "
+               f"{result.total_tokens} tokens -> {result.output_dir} "
+               f"({result.bytes} bytes)")
+    total = result.total_tokens or 1
+    for s in result.sources_meta:
+        typer.echo(f"  source {s['name']}: configured "
+                   f"{s['configured_ratio']:.2%}, actual "
+                   f"{s['tokens'] / total:.2%} "
+                   f"({s['docs_sampled']}/{s['docs_total']} docs)")
+    if result.dropped_tail_tokens:
+        typer.secho(f"warning: dropped incomplete tail of "
+                    f"{result.dropped_tail_tokens} tokens",
+                    fg=typer.colors.YELLOW)
+    for name in result.exhausted_sources:
+        typer.secho(f"warning: source {name!r} exhausted; packing stopped "
+                    f"(output is usable)", fg=typer.colors.YELLOW)
 
 
 def main() -> None:
