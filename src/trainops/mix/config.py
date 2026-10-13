@@ -12,6 +12,8 @@ DEFAULT_SUBSET = "default"
 DEFAULT_SPLIT = "train"
 DEFAULT_FIELD = "text"
 DEFAULT_SEED = 42
+DEFAULT_ROLE = "train"
+ROLES = ("train", "valid")
 
 
 class ConfigError(Exception):
@@ -32,6 +34,8 @@ class SourceConfig:
     split: str = DEFAULT_SPLIT
     field: str = DEFAULT_FIELD
     ratio: float = 0.0
+    role: str = DEFAULT_ROLE   # "train": packed into tokens.bin (trained on);
+                               # "valid": packed into valid_tokens.bin (eval only)
 
 
 @dataclass
@@ -114,6 +118,10 @@ def _parse_body(raw: dict, path: Path) -> MixConfig:
         if not isinstance(ratio, (int, float)) or ratio <= 0:
             raise ConfigError(f"{where}: ratio must be a positive number, "
                               f"got {ratio!r}")
+        role = entry.get("role", DEFAULT_ROLE)
+        if role not in ROLES:
+            raise ConfigError(f"{where}: role must be one of {ROLES}, "
+                              f"got {role!r}")
         sources.append(SourceConfig(
             name=name,
             dataset=_require(entry, "dataset", where),
@@ -121,7 +129,12 @@ def _parse_body(raw: dict, path: Path) -> MixConfig:
             split=entry.get("split", DEFAULT_SPLIT),
             field=entry.get("field", DEFAULT_FIELD),
             ratio=float(ratio),
+            role=role,
         ))
+
+    if not any(s.role == "train" for s in sources):
+        raise ConfigError(f"{path}: at least one source with role 'train' is "
+                          f"required")
 
     return MixConfig(tokenizer=tokenizer, max_seq_len=max_seq_len,
                      seed=seed, sources=sources)

@@ -44,7 +44,59 @@ def test_load_valid_config_defaults(tmp_path):
     web, code = cfg.sources
     assert web == SourceConfig(name="web", dataset="my-web", ratio=0.7)
     assert web.subset == "default" and web.split == "train" and web.field == "text"
+    assert web.role == "train"  # 缺省为训练源
     assert code.subset == "s1" and code.split == "test" and code.field == "content"
+
+
+def test_source_role_valid(tmp_path):
+    path = write_config(tmp_path, """
+        tokenizer = "llama2"
+        max_seq_len = 512
+
+        [[source]]
+        name = "web"
+        dataset = "my-web"
+        ratio = 1.0
+
+        [[source]]
+        name = "heldout"
+        dataset = "my-valid"
+        ratio = 1.0
+        role = "valid"
+    """)
+    cfg = load_config(path)
+    assert cfg.sources[0].role == "train"
+    assert cfg.sources[1].role == "valid"
+
+
+def test_source_role_invalid(tmp_path):
+    path = write_config(tmp_path, """
+        tokenizer = "llama2"
+        max_seq_len = 512
+
+        [[source]]
+        name = "web"
+        dataset = "my-web"
+        ratio = 1.0
+        role = "test"
+    """)
+    with pytest.raises(ConfigError, match="role"):
+        load_config(path)
+
+
+def test_no_train_source_rejected(tmp_path):
+    path = write_config(tmp_path, """
+        tokenizer = "llama2"
+        max_seq_len = 512
+
+        [[source]]
+        name = "heldout"
+        dataset = "my-valid"
+        ratio = 1.0
+        role = "valid"
+    """)
+    with pytest.raises(ConfigError, match="train"):
+        load_config(path)
 
 
 def test_tokenizer_class_table_form(tmp_path):

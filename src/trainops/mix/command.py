@@ -13,7 +13,7 @@ from tqdm import tqdm
 from trainops.convert.command import ARROW_DIR_NAME, OutputExistsError
 
 from .config import MixConfig, resolve_mix_config
-from .pack import PackResult, pack
+from .pack import PackResult, SourcePackStats, pack
 from .pretokenize import PretokenizedSource, iter_docs, pretokenize
 from .tokenizer import Tokenizer, load_tokenizer
 
@@ -35,6 +35,7 @@ class MixResult:
     exhausted_sources: list[str]
     sources_meta: list[dict]
     bytes: int
+    valid: dict | None = None   # meta['valid'] section, None without valid sources
 
 
 def run_mix(config_path: Path, cache_dir: Path, output: Path | None = None,
@@ -68,6 +69,9 @@ def run_mix(config_path: Path, cache_dir: Path, output: Path | None = None,
 
     dtype = np.uint16 if tokenizer.vocab_size < UINT16_LIMIT else np.uint32
 
+    train_sources = [s for s in config.sources if s.role == "train"]
+    valid_sources = [s for s in config.sources if s.role == "valid"]
+
     with tempfile.TemporaryDirectory(prefix="trainops-mix-") as tmp:
         pts = _pretokenize_all(config, tokenizer, arrow_dirs, Path(tmp), progress)
         _check_overflow(pts, dtype, tokenizer)
@@ -75,13 +79,24 @@ def run_mix(config_path: Path, cache_dir: Path, output: Path | None = None,
             shutil.rmtree(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         tokens_path = output_dir / "tokens.bin"
-        result = _pack_all(config, pts, dtype, tokens_path, progress)
+        # Train rng stream must not depend on the presence of valid sources:
+        # train packs with default_rng(seed) exactly as before roles existed.
+        result = _pack_all(train_sources, pts, dtype, tokens_path,
+                           config.max_seq_len, config.seed, progress)
+        valid_result = None
+        valid_tokens_path = output_dir / "valid_tokens.bin"
+        if valid_sources:
+            valid_result = _pack_all(valid_sources, pts, dtype,
+                                     valid_tokens_path, config.max_seq_len,
+                                     config.seed + 1, progress)
 
-    meta = _build_meta(config, tokenizer, dtype, pts, result)
+    meta = _build_meta(config, tokenizer, dtype, pts, result, valid_result)
     meta_path = output_dir / "meta.json"
     _atomic_write_json(meta_path, meta)
 
     bytes_total = tokens_path.stat().st_size + meta_path.stat().st_size
+    if valid_result is not None:
+        bytes_total += valid_tokens_path.stat().st_size
     return MixResult(
         output_dir=output_dir,
         num_sequences=result.sequences,
@@ -90,6 +105,7 @@ def run_mix(config_path: Path, cache_dir: Path, output: Path | None = None,
         exhausted_sources=result.exhausted_sources,
         sources_meta=meta["sources"],
         bytes=bytes_total,
+        valid=meta.get("valid"),
     )
 
 
@@ -116,11 +132,12 @@ def _check_overflow(pts: dict[str, PretokenizedSource], dtype: np.dtype,
                 f"inconsistent with the ids it emits")
 
 
-def _pack_all(config: MixConfig, pts: dict[str, PretokenizedSource],
-              dtype: np.dtype, tokens_path: Path, progress: bool) -> PackResult:
-    streams = {name: iter_docs(pt) for name, pt in pts.items()}
-    weights = {s.name: s.ratio for s in config.sources}
-    rng = np.random.default_rng(config.seed)
+def _pack_all(sources: list, pts: dict[str, PretokenizedSource],
+              dtype: np.dtype, tokens_path: Path, seq_len: int, seed: int,
+              progress: bool) -> PackResult:
+    streams = {s.name: iter_docs(pts[s.name]) for s in sources}
+    weights = {s.name: s.ratio for s in sources}
+    rng = np.random.default_rng(seed)
     pbar = tqdm(unit="seq", desc="pack", disable=not progress)
     with open(tokens_path, "wb") as f:
         def sink(seq: list[int]) -> None:
@@ -128,7 +145,7 @@ def _pack_all(config: MixConfig, pts: dict[str, PretokenizedSource],
             pbar.update(1)
 
         try:
-            result = pack(streams, weights, config.max_seq_len, rng, sink)
+            result = pack(streams, weights, seq_len, rng, sink)
         finally:
             pbar.close()
     return result
@@ -136,13 +153,14 @@ def _pack_all(config: MixConfig, pts: dict[str, PretokenizedSource],
 
 def _build_meta(config: MixConfig, tokenizer: Tokenizer, dtype: np.dtype,
                 pts: dict[str, PretokenizedSource],
-                result: PackResult) -> dict:
+                result: PackResult,
+                valid_result: PackResult | None) -> dict:
     tokenizer_meta = (
         {"preset": config.tokenizer}
         if isinstance(config.tokenizer, str)
         else {"class": f"{config.tokenizer.path}:{config.tokenizer.class_name}"}
     )
-    return {
+    meta = {
         "format": META_FORMAT,
         "tokenizer": tokenizer_meta,
         "vocab_size": tokenizer.vocab_size,
@@ -154,18 +172,35 @@ def _build_meta(config: MixConfig, tokenizer: Tokenizer, dtype: np.dtype,
         "dropped_tail_tokens": result.dropped_tail_tokens,
         "exhausted_sources": result.exhausted_sources,
         "sources": [
-            {
-                "name": s.name,
-                "dataset": s.dataset,
-                "subset": s.subset,
-                "split": s.split,
-                "configured_ratio": s.ratio,
-                "docs_total": pts[s.name].docs_total,
-                "docs_sampled": result.per_source[s.name].docs_sampled,
-                "tokens": result.per_source[s.name].tokens,
-            }
-            for s in config.sources
+            _source_meta(s, pts[s.name], result.per_source[s.name])
+            for s in config.sources if s.role == "train"
         ],
+    }
+    if valid_result is not None:
+        meta["valid"] = {
+            "num_sequences": valid_result.sequences,
+            "total_tokens": valid_result.tokens_written,
+            "dropped_tail_tokens": valid_result.dropped_tail_tokens,
+            "exhausted_sources": valid_result.exhausted_sources,
+            "sources": [
+                _source_meta(s, pts[s.name], valid_result.per_source[s.name])
+                for s in config.sources if s.role == "valid"
+            ],
+        }
+    return meta
+
+
+def _source_meta(source, pt: PretokenizedSource,
+                 stats: SourcePackStats) -> dict:
+    return {
+        "name": source.name,
+        "dataset": source.dataset,
+        "subset": source.subset,
+        "split": source.split,
+        "configured_ratio": source.ratio,
+        "docs_total": pt.docs_total,
+        "docs_sampled": stats.docs_sampled,
+        "tokens": stats.tokens,
     }
 
 

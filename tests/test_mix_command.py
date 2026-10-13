@@ -195,3 +195,112 @@ def test_run_mix_does_not_print_summary(mix_setup, capsys):
     captured = capsys.readouterr()
     assert "done:" not in captured.out
     assert "configured" not in captured.out
+
+
+VALID_ROWS = ["q w e r", "a s d f", "z x c v", "y u i o", "t g b n",
+              "m j u k"]   # 每篇 5 token（含 EOS）
+
+
+def write_config_with_valid(tmp_path, tokenizer_class, seq_len=4, seed=42):
+    make_arrow_cache(tmp_path / "cache", "web-alias", WEB_ROWS)
+    make_arrow_cache(tmp_path / "cache", "valid-alias", VALID_ROWS,
+                     split="validation")
+    toml = f"""
+        tokenizer = {{ class = '{tokenizer_class}' }}
+        max_seq_len = {seq_len}
+        seed = {seed}
+
+        [[source]]
+        name = "web"
+        dataset = "web-alias"
+        ratio = 1.0
+
+        [[source]]
+        name = "heldout"
+        dataset = "valid-alias"
+        split = "validation"
+        ratio = 1.0
+        role = "valid"
+    """
+    path = tmp_path / "mix.toml"
+    path.write_text(textwrap.dedent(toml), encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def mix_valid_setup(tmp_path):
+    tok = write_tokenizer(tmp_path)
+    config = write_config_with_valid(tmp_path, f"{tok}:TinyTokenizer")
+    return tmp_path, config
+
+
+def test_valid_source_packed_separately(mix_valid_setup):
+    tmp_path, config = mix_valid_setup
+    result = run_mix(config, tmp_path / "cache", progress=False)
+    out = result.output_dir
+
+    # valid 源单独打包，不进训练 tokens.bin 的统计
+    assert (out / "valid_tokens.bin").is_file()
+    meta = read_meta(out)
+    assert {s["name"] for s in meta["sources"]} == {"web"}
+    valid = meta["valid"]
+    assert {s["name"] for s in valid["sources"]} == {"heldout"}
+    vs = valid["sources"][0]
+    assert vs["split"] == "validation"
+    assert vs["docs_total"] == len(VALID_ROWS)
+    assert vs["docs_sampled"] == len(VALID_ROWS)   # 单源：抽干为止
+
+    # valid_tokens.bin 大小与 meta 一致，token 合法
+    import numpy as np
+    itemsize = 2
+    vsize = (out / "valid_tokens.bin").stat().st_size
+    assert vsize == valid["num_sequences"] * meta["max_seq_len"] * itemsize
+    assert valid["total_tokens"] == valid["num_sequences"] * meta["max_seq_len"]
+    tokens = np.memmap(out / "valid_tokens.bin", dtype="uint16", mode="r")
+    assert tokens.max() < 100
+
+    # 6 篇 × 5 token = 30 token → 7 条 seq（seq_len=4），尾部 2 token 丢弃
+    assert valid["num_sequences"] == 7
+    assert valid["dropped_tail_tokens"] == 2
+
+    # run_mix 结果里带 valid 统计
+    assert result.valid is not None
+    assert result.valid["num_sequences"] == 7
+
+
+def test_no_valid_source_has_no_valid_tokens(mix_setup):
+    tmp_path, config = mix_setup
+    result = run_mix(config, tmp_path / "cache", progress=False)
+    assert not (result.output_dir / "valid_tokens.bin").exists()
+    assert "valid" not in read_meta(result.output_dir)
+    assert result.valid is None
+
+
+def test_valid_packing_deterministic(mix_valid_setup):
+    tmp_path, config = mix_valid_setup
+    out1 = run_mix(config, tmp_path / "cache", output=tmp_path / "o1",
+                   progress=False)
+    out2 = run_mix(config, tmp_path / "cache", output=tmp_path / "o2",
+                   progress=False)
+    h1 = hashlib.sha256(
+        (out1.output_dir / "valid_tokens.bin").read_bytes()).hexdigest()
+    h2 = hashlib.sha256(
+        (out2.output_dir / "valid_tokens.bin").read_bytes()).hexdigest()
+    assert h1 == h2
+    assert read_meta(out1.output_dir) == read_meta(out2.output_dir)
+
+
+def test_valid_source_does_not_change_train_tokens(tmp_path):
+    """有无 valid 源，train 打包结果逐字节一致（rng 流不被 valid 干扰）"""
+    tok = write_tokenizer(tmp_path)
+    cfg_train_only = write_config(
+        tmp_path, f"{tok}:TinyTokenizer",
+        [("web", "web-alias", 1.0, WEB_ROWS)], stem="a")
+    r1 = run_mix(cfg_train_only, tmp_path / "cache", output=tmp_path / "o1",
+                 progress=False)
+    cfg_with_valid = write_config_with_valid(
+        tmp_path, f"{tok}:TinyTokenizer")
+    r2 = run_mix(cfg_with_valid, tmp_path / "cache", output=tmp_path / "o2",
+                 progress=False)
+    assert (r1.output_dir / "tokens.bin").read_bytes() == \
+        (r2.output_dir / "tokens.bin").read_bytes()
