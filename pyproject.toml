@@ -5,6 +5,7 @@ description = "LLM train CI/CD toolkit"
 requires-python = ">=3.10"
 dependencies = [
     "modelscope[datasets]>=1.20",
+    "safetensors",
     "tomli>=2; python_version < \"3.11\"",
     "tqdm>=4.64",
     "torch",

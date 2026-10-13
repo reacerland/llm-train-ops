@@ -1,6 +1,6 @@
 # llm-train-ops
 
-LLM 训练 CI/CD 工具集。当前包含 `fetch` 数据获取工具、`convert` 缓存转 HF Arrow 工具与 `mix` 多源数据混合打包工具。
+LLM 训练 CI/CD 工具集。包含 `fetch` 数据获取、`convert` 缓存转 HF Arrow、`mix` 多源数据混合打包与 `train` 模型训练命令。
 
 ## 安装
 
@@ -81,6 +81,62 @@ meta = json.load(open("<output>/meta.json"))
 tokens = np.memmap("<output>/tokens.bin", dtype=meta["dtype"], mode="r")
 seqs = tokens.reshape(-1, meta["max_seq_len"])  # 一条序列: input_ids=seq[:-1], labels=seq[1:]
 ```
+
+## train：任务式模型训练
+
+一个任务配置 `task.toml` 包含训练任务的全部配置：混合数据集定义（`[data]`，同 mix 配置）、模型 Python class 文件（`[model]`）、训练超参（`[train]`）与可选的推理 prompt（`[prompts]`）。
+
+CI 流水线三步：
+
+```bash
+# 1. 创建训练任务 = 编写 task.toml（见下）
+# 2. 创建混合数据集(mix 直接读 task.toml 的 [data] 段)
+trainops mix --config task.toml
+# 3. 训练,产出保存到任务产出目录
+trainops train --config task.toml --output runs/task-001
+```
+
+任务配置示例：
+
+```toml
+[data]
+tokenizer = "llama2"          # 或 { class = "path/to.py:ClassName" }
+max_seq_len = 4096
+output = "data/mixture"       # 可选;缺省 <cache>/mixtures/<配置名>
+
+[[data.source]]
+name = "web"
+dataset = "my-web"
+ratio = 0.7
+
+[model]
+file = "models/gpt.py"        # 相对配置文件目录解析
+class = "GPT"
+[model.args]                  # 原样传给模型构造函数
+vocab_size = 32000
+d_model = 768
+n_layer = 12
+
+[train]
+total_tokens = 100_000_000    # 训练多少 token
+batch_size = 8
+lr = 3.0e-4
+warmup_steps = 200
+log_interval = 10
+save_interval = 500
+seed = 42
+
+[prompts]                     # 可选:训完用最终权重生成样本
+texts = ["今天天气"]
+max_new_tokens = 50
+```
+
+- 模型为鸭子类型接口：普通 `torch.nn.Module`,`forward(input_ids) -> logits [B, T, V]`,loss 由训练脚本计算(input_ids=seq[:-1], labels=seq[1:])
+- 数据源为 mix 产物(`tokens.bin` + `meta.json`),memmap 加载,同 seed 重跑数据顺序一致;`total_tokens` 超过数据集总量时自动多 epoch
+- CUDA 上自动 bf16 autocast,否则 fp32;单卡单进程
+- 产出目录内容:`model_final.safetensors`(最终权重)、`loss.jsonl`(每 log_interval 一步的 step/loss/lr/吞吐)、`checkpoint.pt`(每 save_interval 覆盖更新,含 optimizer 与 RNG 状态)、`samples.txt`(配了 [prompts] 才有)、`task.toml`(配置快照)
+- 断点续训:`trainops train --config task.toml --output runs/task-001 --resume` 从产出目录的 checkpoint.pt 恢复,轨迹与一次性跑完一致;`--resume` 与 `--overwrite` 互斥
+- 冒烟与正式训练同一条命令,只是两份配置;冒烟看 loss.jsonl 与 samples.txt 人工确认后再跑正式
 
 ## 测试
 

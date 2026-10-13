@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import sys
 import traceback
 from pathlib import Path
@@ -19,6 +20,10 @@ from trainops.mix.command import MixCacheNotFoundError, run_mix
 from trainops.mix.config import ConfigError
 from trainops.mix.pretokenize import PretokenizeError
 from trainops.mix.tokenizer import TokenizerLoadError
+from trainops.train.config import load_task_config
+from trainops.train.data import MixtureNotFoundError
+from trainops.train.loop import run_training
+from trainops.train.model import ModelLoadError
 
 app = typer.Typer(help="LLM train CI/CD toolkit")
 
@@ -160,6 +165,59 @@ def mix(
     for name in result.exhausted_sources:
         typer.secho(f"warning: source {name!r} exhausted; packing stopped "
                     f"(output is usable)", fg=typer.colors.YELLOW)
+
+
+@app.command()
+def train(
+    config: Path = typer.Option(..., "--config", help="Path to the task TOML config file"),
+    output: Path = typer.Option(..., "--output", help="Task output directory (CI artifact dir)"),
+    resume: bool = typer.Option(False, "--resume", help="Resume from checkpoint.pt in the output directory"),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Replace an existing output directory"),
+    cache_dir: Path = typer.Option(Path.home() / ".cache" / "trainops", help="Cache root directory"),
+) -> None:
+    """Train a model from a task config on a mix-produced dataset."""
+    if resume and overwrite:
+        typer.secho("error: --resume and --overwrite are mutually exclusive",
+                    err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=2)
+
+    try:
+        task = load_task_config(config)
+    except ConfigError as exc:
+        typer.secho(f"error: {exc}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=2) from exc
+
+    mixture_dir = task.data_output or \
+        cache_dir / "mixtures" / task.path.stem
+    if output.exists():
+        if overwrite:
+            shutil.rmtree(output)
+        elif not resume:
+            typer.secho(
+                f"error: output directory already exists: {output} "
+                f"(use --overwrite to replace it, or --resume to continue)",
+                err=True, fg=typer.colors.RED)
+            raise typer.Exit(code=1)
+
+    try:
+        result = run_training(task, mixture_dir, output, resume=resume)
+    except MixtureNotFoundError as exc:
+        typer.secho(f"error: {exc}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    except FileNotFoundError as exc:
+        typer.secho(f"error: {exc} (cannot --resume without it)",
+                    err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    except (ModelLoadError, TokenizerLoadError, ValueError) as exc:
+        typer.secho(f"error: {exc}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    except Exception as exc:
+        typer.secho(f"error: training from {config} failed: {exc}",
+                    err=True, fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"done: {result.final_step} steps, "
+               f"final loss {result.final_loss:.4f} -> {result.output_dir}")
 
 
 def main() -> None:
