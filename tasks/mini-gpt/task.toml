@@ -1,0 +1,57 @@
+# mini-gpt: ~30M param GPT trained on cached TinyStories.
+#
+# Data: tinystories-train packs into tokens.bin (trained on);
+# tinystories-valid has role = "valid" — packed into valid_tokens.bin,
+# used ONLY for periodic PPL/top-k eval, never trained on.
+#
+# Rebuild the mixture (train + valid holdout):
+#   trainops mix --config tasks/mini-gpt/task.toml --overwrite
+# Train:
+#   trainops train --config tasks/mini-gpt/task.toml \
+#       --output tasks/mini-gpt/runs/run-002
+
+[data]
+tokenizer = "llama2"
+max_seq_len = 512
+seed = 42
+output = "/home/zenos/.cache/trainops/mixtures/mix"   # cached mixture location
+
+[[data.source]]
+name = "train"
+dataset = "tinystories-train"
+subset = "default"
+split = "train"
+ratio = 1.0
+
+[[data.source]]
+name = "valid"
+dataset = "tinystories-valid"
+subset = "default"
+split = "validation"
+ratio = 1.0
+role = "valid"
+
+[model]
+file = "gpt.py"
+class = "GPT"
+[model.args]
+vocab_size = 32000
+d_model = 384
+n_layer = 10
+n_head = 6
+max_seq_len = 512
+
+[train]
+total_tokens = 27_465_728    # 1 epoch of the train-only mixture (53644 seqs)
+batch_size = 8
+lr = 6.0e-4
+warmup_steps = 200
+log_interval = 20
+save_interval = 1000
+eval_interval = 500          # PPL/top-k on valid+train every 500 steps
+eval_batches = 20            # 20 batches × 8 × 511 ≈ 82k tokens per split
+seed = 42
+
+[prompts]
+texts = ["Once upon a time", "One day, a little girl named Lily"]
+max_new_tokens = 80
